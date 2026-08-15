@@ -25,13 +25,13 @@ The production OAuth scope should be restricted to Drive read access for the fol
 2. Add `http://localhost:8000/auth/google/callback` as an authorized redirect URI for local development.
 3. Create an API key for Google Picker, restrict it to the Google Picker API, and add `http://localhost:8000` as an allowed referrer.
 4. Copy `.env.example` to `.env`, fill in all Google values, set `GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback`, set a Fernet key and `SESSION_SECRET`, then set `DEMO_MODE=false`.
-5. Run `docker compose up --build`, or export the variables and run `python -m uvicorn app:app --host 127.0.0.1 --port 8000`.
+5. Export the variables and run `python -m uvicorn app:app --host 127.0.0.1 --port 8000`.
 
 After Google login, create a project, click **Choose from Google Drive**, select a folder, then connect it. The app lists image files directly inside that folder and supports pagination beyond 1,000 files.
 
 ## Containers and ECS
 
-`Dockerfile`, `docker-compose.yml`, and `traefik/` provide the containerized deployment. `infra/ecs-task-definition.json` is an ECS Fargate template that persists SQLite on EFS and exposes only Traefik on port 80.
+`Dockerfile` and `traefik/` provide the application and proxy images for ECS. `infra/ecs-task-definition.json` is an ECS Fargate template that persists SQLite on EFS and exposes only Traefik on port 80.
 
 Follow [infra/DEPLOY-ECS.md](infra/DEPLOY-ECS.md) to publish the two images, configure EFS/Secrets Manager, register the task, and use HTTPS with a real domain for Google OAuth.
 

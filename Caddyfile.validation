@@ -1,3 +1,0 @@
-http://{$DOMAIN} {
-    reverse_proxy everafter:8000
-}
