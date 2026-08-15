@@ -1,0 +1,50 @@
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local databases and runtime data
+*.sqlite
+*.sqlite3
+*.db
+data/*
+!data/.gitkeep
+
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# Build and packaging artifacts
+build/
+dist/
+*.egg-info/
+
+# IDE and OS metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini

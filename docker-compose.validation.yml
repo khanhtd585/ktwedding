@@ -1,0 +1,14 @@
+# Local Docker validation only. It intentionally uses HTTP and isolated ports;
+# production must use docker-compose.production.yml with Caddy HTTPS.
+services:
+  everafter:
+    volumes:
+      - everafter_validation_data:/data
+  caddy:
+    ports:
+      - "18080:80"
+    volumes:
+      - ./Caddyfile.validation:/etc/caddy/Caddyfile:ro
+
+volumes:
+  everafter_validation_data:

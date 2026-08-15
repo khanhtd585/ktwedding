@@ -1,0 +1,37 @@
+{
+  "family": "everafter",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/everafterTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "traefik",
+      "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/everafter-traefik:<TAG>",
+      "essential": true,
+      "portMappings": [{"containerPort": 80, "hostPort": 80, "protocol": "tcp"}],
+      "logConfiguration": {"logDriver": "awslogs", "options": {"awslogs-group": "/ecs/everafter", "awslogs-region": "<REGION>", "awslogs-stream-prefix": "traefik"}}
+    },
+    {
+      "name": "everafter",
+      "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/everafter-app:<TAG>",
+      "essential": true,
+      "environment": [
+        {"name":"DATABASE_PATH", "value":"/data/everafter.sqlite3"},
+        {"name":"GOOGLE_REDIRECT_URI", "value":"https://photos.example.com/auth/google/callback"},
+        {"name":"DEMO_MODE", "value":"false"}
+      ],
+      "secrets": [
+        {"name":"GOOGLE_CLIENT_ID", "valueFrom":"arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:everafter/google-client-id"},
+        {"name":"GOOGLE_CLIENT_SECRET", "valueFrom":"arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:everafter/google-client-secret"},
+        {"name":"TOKEN_ENCRYPTION_KEY", "valueFrom":"arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:everafter/token-encryption-key"},
+        {"name":"SESSION_SECRET", "valueFrom":"arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:everafter/session-secret"}
+      ],
+      "mountPoints": [{"sourceVolume":"everafter-data", "containerPath":"/data", "readOnly":false}],
+      "logConfiguration": {"logDriver":"awslogs", "options":{"awslogs-group":"/ecs/everafter","awslogs-region":"<REGION>","awslogs-stream-prefix":"app"}}
+    }
+  ],
+  "volumes": [{"name":"everafter-data","efsVolumeConfiguration":{"fileSystemId":"fs-<EFS_ID>","transitEncryption":"ENABLED","authorizationConfig":{"accessPointId":"fsap-<ACCESS_POINT_ID>","iam":"ENABLED"}}}]
+}

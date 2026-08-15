@@ -1,0 +1,204 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  One-instance Everafter MVP host: Ubuntu 24.04, Elastic IP, Docker bootstrap,
+  HTTPS ports, and Systems Manager access. Google secrets stay on the instance.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC that contains the public subnet.
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: A public subnet with a route to an Internet Gateway.
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues: [t3.micro, t3.small, t3.medium]
+    Description: t3.small is the recommended MVP starting size.
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: ''
+    Description: Optional EC2 key pair for SSH. Leave blank and use Session Manager instead.
+  AllowedSshCidr:
+    Type: String
+    Default: ''
+    Description: Optional CIDR allowed to SSH, for example 203.0.113.10/32. Required when KeyName is set.
+  RootVolumeGiB:
+    Type: Number
+    Default: 30
+    MinValue: 20
+    MaxValue: 200
+    Description: EBS root volume size. Everafter SQLite data is stored here.
+  RepositoryUrl:
+    Type: String
+    Default: ''
+    Description: Optional public Git URL. When supplied, bootstrap clones it into /opt/everafter.
+  DomainName:
+    Type: String
+    Default: ''
+    Description: Optional public domain such as photos.example.com.
+  HostedZoneId:
+    Type: String
+    Default: ''
+    Description: Optional Route 53 hosted-zone ID. Supply with DomainName to create an A record automatically.
+
+Conditions:
+  HasKeyName: !Not [!Equals [!Ref KeyName, '']]
+  HasSshAccess: !Not [!Equals [!Ref AllowedSshCidr, '']]
+  HasRepository: !Not [!Equals [!Ref RepositoryUrl, '']]
+  HasDomainName: !Not [!Equals [!Ref DomainName, '']]
+  HasHostedZone: !Not [!Equals [!Ref HostedZoneId, '']]
+  CreateDnsRecord: !And [!Condition HasDomainName, !Condition HasHostedZone]
+
+Resources:
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-role
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public HTTPS access for Everafter
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP for Caddy certificate validation and HTTPS redirect
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: Everafter HTTPS
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-web
+
+  SshIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: HasSshAccess
+    Properties:
+      GroupId: !Ref InstanceSecurityGroup
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: !Ref AllowedSshCidr
+      Description: Restricted administration SSH
+
+  EverafterInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: '{{resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id}}'
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      KeyName: !If [HasKeyName, !Ref KeyName, !Ref AWS::NoValue]
+      SecurityGroupIds: [!Ref InstanceSecurityGroup]
+      SubnetId: !Ref SubnetId
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: !Ref RootVolumeGiB
+            Encrypted: true
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-everafter
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          exec > >(tee /var/log/everafter-bootstrap.log | logger -t everafter-bootstrap) 2>&1
+
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y ca-certificates curl git make unzip
+          install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+          chmod a+r /etc/apt/keyrings/docker.asc
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
+          apt-get update
+          apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+          systemctl enable --now docker
+          usermod -aG docker ubuntu
+
+          install -d -m 0755 -o ubuntu -g ubuntu /opt/everafter
+          REPOSITORY_URL='${RepositoryUrl}'
+          if [ -n "$REPOSITORY_URL" ]; then
+            git clone --depth 1 "$REPOSITORY_URL" /opt/everafter
+            chown -R ubuntu:ubuntu /opt/everafter
+            if [ -f /opt/everafter/.env.production.example ]; then
+              cp /opt/everafter/.env.production.example /opt/everafter/.env.production
+              mkdir -p /opt/everafter/data
+              chown 10001:10001 /opt/everafter/data
+              chown ubuntu:ubuntu /opt/everafter/.env.production
+            fi
+          else
+            cat > /opt/everafter/DEPLOYMENT-NEXT-STEPS.txt <<'EOF'
+          Upload or clone the Everafter project here, then run:
+            make setup
+            nano .env.production
+            make deploy
+          Bootstrap log: /var/log/everafter-bootstrap.log
+          EOF
+            chown ubuntu:ubuntu /opt/everafter/DEPLOYMENT-NEXT-STEPS.txt
+          fi
+
+  ElasticIp:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-eip
+
+  ElasticIpAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt ElasticIp.AllocationId
+      InstanceId: !Ref EverafterInstance
+
+  DnsRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: CreateDnsRecord
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      TTL: '60'
+      ResourceRecords: [!Ref ElasticIp]
+
+Outputs:
+  InstanceId:
+    Description: EC2 instance ID. Use Systems Manager Session Manager for shell access.
+    Value: !Ref EverafterInstance
+  ElasticIpAddress:
+    Description: Stable public IPv4 address. Point your external DNS A record here if Route 53 was not used.
+    Value: !Ref ElasticIp
+  ApplicationUrl:
+    Description: Add HTTPS Google OAuth only after this domain resolves to the Elastic IP.
+    Value: !If
+      - HasDomainName
+      - !Sub 'https://${DomainName}'
+      - !Sub 'http://${ElasticIp}'
+  BootstrapLogCommand:
+    Description: Run this inside Session Manager to inspect the initial Docker installation.
+    Value: sudo tail -n 200 /var/log/everafter-bootstrap.log

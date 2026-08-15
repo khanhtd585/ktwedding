@@ -1,0 +1,12 @@
+http:
+  routers:
+    everafter:
+      entryPoints:
+        - web
+      rule: PathPrefix(`/`)
+      service: everafter
+  services:
+    everafter:
+      loadBalancer:
+        servers:
+          - url: http://everafter:8000

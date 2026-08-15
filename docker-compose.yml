@@ -1,0 +1,20 @@
+services:
+  everafter:
+    build: .
+    env_file: .env
+    volumes:
+      - everafter_data:/data
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  traefik:
+    build: ./traefik
+    depends_on:
+      - everafter
+    ports:
+      - "80:80"
+    restart: unless-stopped
+
+volumes:
+  everafter_data:
