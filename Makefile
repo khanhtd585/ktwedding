@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-ENV_FILE ?= .env.production
+ENV_FILE ?= .env
 COMPOSE_FILE ?= docker-compose.production.yml
 TAIL ?= 200
 COMPOSE = EVERAFTER_ENV_FILE=$(ENV_FILE) docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE)
@@ -12,7 +12,7 @@ help: ## Show available deployment commands.
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 setup: ## Create the production env file and persistent SQLite directory once.
-	@if [ ! -f "$(ENV_FILE)" ]; then cp .env.production.example "$(ENV_FILE)"; echo "Created $(ENV_FILE). Fill in its Google values and secrets before deploying."; else echo "$(ENV_FILE) already exists; it was not changed."; fi
+	@if [ ! -f "$(ENV_FILE)" ]; then cp .env.example "$(ENV_FILE)"; echo "Created $(ENV_FILE). Fill in its Google values and secrets before deploying."; else echo "$(ENV_FILE) already exists; it was not changed."; fi
 	@mkdir -p data
 	@sudo chown 10001:10001 data
 	@echo "SQLite directory is ready: $$(pwd)/data"
